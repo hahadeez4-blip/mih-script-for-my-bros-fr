@@ -1,0 +1,340 @@
+--// SETTINGS
+
+local AudioSwaps = {
+	["213603013"] = {
+		Id = "rbxassetid://134580877907499",
+		Start = 1.1
+	},
+
+	["142431247"] = {
+		Id = "rbxassetid://566593606",
+		Start = 0
+	}
+}
+
+
+
+--// FIND OWNED MODEL
+
+local function FindOwnedModel()
+
+	local Living = workspace:WaitForChild("Living")
+	local Player = game.Players.LocalPlayer
+
+	for _,model in ipairs(Living:GetChildren()) do
+		
+		for _,obj in ipairs(model:GetDescendants()) do
+			
+			if obj:IsA("ObjectValue") and obj.Name == "Owner" then
+				
+				if obj.Value == Player 
+				or (obj.Value and obj.Value.Name == Player.Name) then
+					
+					return model
+					
+				end
+			end
+		end
+	end
+	
+	return nil
+end
+
+
+
+--// GET / CREATE ANIMATOR
+
+local function GetAnimator(model)
+
+	local animator = model:FindFirstChildWhichIsA("Animator", true)
+
+	if animator then
+		return animator
+	end
+
+
+	local controller = model:FindFirstChildOfClass("AnimationController")
+
+	if not controller then
+
+		controller = Instance.new("AnimationController")
+		controller.Parent = model
+
+	end
+
+
+	animator = Instance.new("Animator")
+	animator.Parent = controller
+
+	return animator
+end
+
+
+
+--// ANIMATION REPLAYER
+
+local function SetupAnimationReplay(oldModel, newModel)
+
+	local oldAnimator = GetAnimator(oldModel)
+	local newAnimator = GetAnimator(newModel)
+
+
+	print("Animation replay ready")
+
+
+	oldAnimator.AnimationPlayed:Connect(function(oldTrack)
+
+		local oldAnimation = oldTrack.Animation
+
+		if not oldAnimation then
+			return
+		end
+
+
+		local id = oldAnimation.AnimationId
+
+		if id == "" then
+			return
+		end
+
+
+		print("Playing on clone:", id)
+
+
+		local animation = Instance.new("Animation")
+
+		animation.AnimationId = id
+
+
+		local newTrack = newAnimator:LoadAnimation(animation)
+
+
+		newTrack.Priority = oldTrack.Priority
+		newTrack.Looped = oldTrack.Looped
+
+
+		newTrack:Play(
+			0,
+			oldTrack.WeightCurrent,
+			oldTrack.Speed
+		)
+
+
+
+		-- Keep synced
+
+		task.spawn(function()
+
+			while oldTrack.IsPlaying and newTrack.IsPlaying do
+
+				newTrack.TimePosition = oldTrack.TimePosition
+				newTrack:AdjustSpeed(oldTrack.Speed)
+
+				task.wait()
+
+			end
+
+
+			if newTrack then
+				newTrack:Stop()
+			end
+
+		end)
+
+	end)
+
+end
+
+
+
+--// CREATE ULTIMEMIH
+
+task.spawn(function()
+
+
+	local OldModel = FindOwnedModel()
+
+
+	if not OldModel then
+
+		warn("Could not find player model")
+
+		return
+
+	end
+
+
+
+	local NewModel = game:GetService("ReplicatedStorage")
+		:WaitForChild("Assets")
+		:WaitForChild("UltimateMiH")
+		:Clone()
+
+
+
+	-- Remove unwanted parts
+
+	local RemoveParts = {
+		{"LowerTorso","HorseL"},
+		{"LowerTorso","HorseR"},
+		{"Head","LHead"},
+		{"Head","RHead"}
+	}
+
+
+
+	for _,info in ipairs(RemoveParts) do
+
+		local folder = NewModel:FindFirstChild(info[1])
+
+		if folder then
+
+			local part = folder:FindFirstChild(info[2])
+
+			if part then
+				part:Destroy()
+			end
+
+		end
+
+	end
+
+
+
+	NewModel.Parent = workspace
+
+	NewModel:PivotTo(OldModel:GetPivot())
+
+
+
+	-- Make old model invisible
+
+	for _,obj in ipairs(OldModel:GetDescendants()) do
+
+		if obj:IsA("BasePart") then
+
+			obj.Transparency = 1
+			obj.CanCollide = false
+			obj.CastShadow = false
+
+
+		elseif obj:IsA("Decal") or obj:IsA("Texture") then
+
+			obj.Transparency = 1
+
+
+		elseif obj:IsA("ParticleEmitter") 
+		or obj:IsA("Trail") then
+
+			obj.Enabled = false
+
+		end
+
+	end
+
+
+
+	-- Weld clone
+
+	for _,newPart in ipairs(NewModel:GetDescendants()) do
+
+		if newPart:IsA("BasePart") then
+
+			local oldPart = OldModel:FindFirstChild(newPart.Name,true)
+
+
+			if oldPart and oldPart:IsA("BasePart") then
+
+				newPart.Anchored = false
+				newPart.CanCollide = false
+				newPart.Massless = true
+
+				newPart.CFrame = oldPart.CFrame
+
+
+				local weld = Instance.new("WeldConstraint")
+
+				weld.Part0 = oldPart
+				weld.Part1 = newPart
+				weld.Parent = newPart
+
+			end
+
+		end
+
+	end
+
+
+
+	-- Start animation mirroring
+
+	SetupAnimationReplay(OldModel,NewModel)
+
+
+end)
+
+
+
+--// AUDIO SWAPPER
+
+local function SwapSound(sound)
+
+	if not sound:IsA("Sound") then
+		return
+	end
+
+
+	local id = sound.SoundId:match("%d+")
+
+
+	if AudioSwaps[id] then
+
+		local data = AudioSwaps[id]
+
+		local playing = sound.IsPlaying
+
+
+		sound.SoundId = data.Id
+
+
+		if playing then
+
+			sound:Stop()
+
+			sound.TimePosition = data.Start
+
+			sound:Play()
+
+		else
+
+			sound.TimePosition = data.Start
+
+		end
+
+	end
+
+end
+
+
+
+-- Existing sounds
+
+for _,obj in ipairs(game:GetDescendants()) do
+
+	SwapSound(obj)
+
+end
+
+
+
+-- New sounds
+
+game.DescendantAdded:Connect(function(obj)
+
+	task.defer(function()
+
+		SwapSound(obj)
+
+	end)
+
+end)
