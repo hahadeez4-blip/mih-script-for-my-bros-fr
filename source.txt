@@ -1,7 +1,7 @@
 game:GetService("StarterGui"):SetCore("SendNotification",{
 	Title = "Notification", -- Required
 	Text = "Thanks For Using MIH Script By Luis :)", -- Required
-	Icon = "rbxassetid://1234567890" -- Optional
+	Icon = "rbxassetid://242239336" -- Optional
 })
 
 --// SETTINGS
@@ -32,8 +32,18 @@ local AudioSwaps = {
 		Start = 0
 	},
 
+     ["5967327070"] = {
+		Id = "rbxassetid://76183745414902",
+		Start = 0
+	},
+
      ["4678845037"] = {
 		Id = "rbxassetid://8195395913",
+		Start = 0
+	},
+
+     ["5967327323"] = {
+		Id = "rbxassetid://112438891419481",
 		Start = 0
 	},
 
