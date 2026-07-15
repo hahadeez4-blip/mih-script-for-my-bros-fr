@@ -1,3 +1,9 @@
+game:GetService("StarterGui"):SetCore("SendNotification",{
+	Title = "Notification", -- Required
+	Text = "Thanks For Using MIH Script By Luis :)", -- Required
+	Icon = "rbxassetid://1234567890" -- Optional
+})
+
 --// SETTINGS
 
 local AudioSwaps = {
@@ -8,7 +14,27 @@ local AudioSwaps = {
 
     ["5968741444"] = {
 		Id = "rbxassetid://89772764055022",
-		Start = 1.1
+		Start = 0
+	},
+
+     ["5963525217"] = {
+		Id = "rbxassetid://83265607079937",
+		Start = 0.2
+	},
+
+     ["4678844437"] = {
+		Id = "rbxassetid://119198093730660",
+		Start = 0
+	},
+
+     ["4678842452"] = {
+		Id = "rbxassetid://135188557169206",
+		Start = 0
+	},
+
+     ["4678845037"] = {
+		Id = "rbxassetid://8195395913",
+		Start = 0
 	},
 
 	["142431247"] = {
@@ -23,8 +49,8 @@ local AudioSwaps = {
 local ACCEL_TRIGGER_ID   = "89772764055022"          -- the swapped-in sound that triggers the effect
 local ACCEL_DELAY        = 2.25                      -- seconds to wait after the sound starts playing
 local ACCEL_DURATION     = 20                        -- how long the straight tp-walk part lasts (after the circle)
-local ACCEL_ONESHOT_ID   = "rbxassetid://140185102531975" -- plays once when the effect kicks in
-local ACCEL_WALKSPEED    = 85                        -- simulated walkspeed for the tp-walk
+local ACCEL_ONESHOT_ID   = "rbxassetid://123559127105316" -- plays once when the effect kicks in
+local ACCEL_WALKSPEED    = 120                        -- simulated walkspeed for the tp-walk
 local ACCEL_TURN_SPEED   = 12                        -- how fast the character rotates to face movement (higher = snappier)
 local ACCEL_MAX_DT       = 1/30                      -- clamps dt after lag spikes so it can't "jump" too far in one frame
 local ACCEL_RAMP_TIME    = 0.15                      -- seconds to ease the tp-walk speed in/out so it doesn't feel abrupt
