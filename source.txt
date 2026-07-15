@@ -6,6 +6,11 @@ local AudioSwaps = {
 		Start = 1.1
 	},
 
+    ["5968741444"] = {
+		Id = "rbxassetid://89772764055022",
+		Start = 1.1
+	},
+
 	["142431247"] = {
 		Id = "rbxassetid://566593606",
 		Start = 0
@@ -13,8 +18,60 @@ local AudioSwaps = {
 }
 
 
+--// ACCELERATION EFFECT SETTINGS
 
---// FIND OWNED MODEL
+local ACCEL_TRIGGER_ID   = "89772764055022"          -- the swapped-in sound that triggers the effect
+local ACCEL_DELAY        = 2.25                      -- seconds to wait after the sound starts playing
+local ACCEL_DURATION     = 20                        -- how long the straight tp-walk part lasts (after the circle)
+local ACCEL_ONESHOT_ID   = "rbxassetid://140185102531975" -- plays once when the effect kicks in
+local ACCEL_WALKSPEED    = 85                        -- simulated walkspeed for the tp-walk
+local ACCEL_TURN_SPEED   = 12                        -- how fast the character rotates to face movement (higher = snappier)
+local ACCEL_MAX_DT       = 1/30                      -- clamps dt after lag spikes so it can't "jump" too far in one frame
+local ACCEL_RAMP_TIME    = 0.15                      -- seconds to ease the tp-walk speed in/out so it doesn't feel abrupt
+
+local CIRCLE_RADIUS      = 10                        -- studs — how wide the circle is
+local CIRCLE_DIRECTION   = 1                         -- 1 = curves right, -1 = curves left
+
+local GROUND_RAY_DISTANCE = 10                       -- studs to raycast down each frame to stay glued to the floor
+
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+local UserInputService = game:GetService("UserInputService")
+
+local accelActive = false -- guard so it can't be re-triggered while already running
+
+
+--// SHIFTLOCK HELPER
+
+local function IsShiftlockActive()
+	-- Roblox's default shiftlock (and most custom ones) lock the mouse to the
+	-- center of the screen while active, so this is the standard way to detect it.
+	return UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
+end
+
+
+--// GROUND SNAP HELPER (keeps the tp-walk glued to slopes/stairs instead of floating/clipping)
+
+local function GetSnappedY(position, heightOffset, character, fallbackY)
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = {character}
+
+	local origin = Vector3.new(position.X, position.Y + 3, position.Z)
+	local result = workspace:Raycast(origin, Vector3.new(0, -GROUND_RAY_DISTANCE, 0), params)
+
+	if result then
+		return result.Position.Y + heightOffset
+	end
+
+	return fallbackY
+
+end
+
+
+
+--// FIND PLAYER MODEL
 
 local function FindOwnedModel()
 
@@ -22,159 +79,47 @@ local function FindOwnedModel()
 	local Player = game.Players.LocalPlayer
 
 	for _,model in ipairs(Living:GetChildren()) do
-		
+
 		for _,obj in ipairs(model:GetDescendants()) do
-			
+
 			if obj:IsA("ObjectValue") and obj.Name == "Owner" then
-				
+
 				if obj.Value == Player 
 				or (obj.Value and obj.Value.Name == Player.Name) then
-					
+
 					return model
-					
+
 				end
 			end
 		end
 	end
-	
-	return nil
-end
-
-
-
---// GET / CREATE ANIMATOR
-
-local function GetAnimator(model)
-
-	local animator = model:FindFirstChildWhichIsA("Animator", true)
-
-	if animator then
-		return animator
-	end
-
-
-	local controller = model:FindFirstChildOfClass("AnimationController")
-
-	if not controller then
-
-		controller = Instance.new("AnimationController")
-		controller.Parent = model
-
-	end
-
-
-	animator = Instance.new("Animator")
-	animator.Parent = controller
-
-	return animator
-end
-
-
-
---// ANIMATION REPLAYER
-
-local function SetupAnimationReplay(oldModel, newModel)
-
-	local oldAnimator = GetAnimator(oldModel)
-	local newAnimator = GetAnimator(newModel)
-
-
-	print("Animation replay ready")
-
-
-	oldAnimator.AnimationPlayed:Connect(function(oldTrack)
-
-		local oldAnimation = oldTrack.Animation
-
-		if not oldAnimation then
-			return
-		end
-
-
-		local id = oldAnimation.AnimationId
-
-		if id == "" then
-			return
-		end
-
-
-		print("Playing on clone:", id)
-
-
-		local animation = Instance.new("Animation")
-
-		animation.AnimationId = id
-
-
-		local newTrack = newAnimator:LoadAnimation(animation)
-
-
-		newTrack.Priority = oldTrack.Priority
-		newTrack.Looped = oldTrack.Looped
-
-
-		newTrack:Play(
-			0,
-			oldTrack.WeightCurrent,
-			oldTrack.Speed
-		)
-
-
-
-		-- Keep synced
-
-		task.spawn(function()
-
-			while oldTrack.IsPlaying and newTrack.IsPlaying do
-
-				newTrack.TimePosition = oldTrack.TimePosition
-				newTrack:AdjustSpeed(oldTrack.Speed)
-
-				task.wait()
-
-			end
-
-
-			if newTrack then
-				newTrack:Stop()
-			end
-
-		end)
-
-	end)
 
 end
 
 
 
---// CREATE ULTIMEMIH
+--// CREATE MODEL
 
 task.spawn(function()
 
-
 	local OldModel = FindOwnedModel()
 
-
 	if not OldModel then
-
-		warn("Could not find player model")
-
+		warn("No owned model found")
 		return
-
 	end
 
 
-
 	local NewModel = game:GetService("ReplicatedStorage")
-		:WaitForChild("Assets")
-		:WaitForChild("UltimateMiH")
+		.Assets
+		.UltimateMiH
 		:Clone()
 
 
 
-	-- Remove unwanted parts
+	-- REMOVE PARTS
 
-	local RemoveParts = {
+	local Remove = {
 		{"LowerTorso","HorseL"},
 		{"LowerTorso","HorseR"},
 		{"Head","LHead"},
@@ -182,51 +127,45 @@ task.spawn(function()
 	}
 
 
+	for _,data in ipairs(Remove) do
 
-	for _,info in ipairs(RemoveParts) do
-
-		local folder = NewModel:FindFirstChild(info[1])
+		local folder = NewModel:FindFirstChild(data[1])
 
 		if folder then
 
-			local part = folder:FindFirstChild(info[2])
+			local part = folder:FindFirstChild(data[2])
 
 			if part then
 				part:Destroy()
 			end
 
 		end
-
 	end
 
 
 
 	NewModel.Parent = workspace
-
 	NewModel:PivotTo(OldModel:GetPivot())
 
 
 
-	-- Make old model invisible
+	-- HIDE OLD MODEL
 
-	for _,obj in ipairs(OldModel:GetDescendants()) do
+	for _,v in ipairs(OldModel:GetDescendants()) do
 
-		if obj:IsA("BasePart") then
+		if v:IsA("BasePart") then
 
-			obj.Transparency = 1
-			obj.CanCollide = false
-			obj.CastShadow = false
+			v.Transparency = 1
+			v.CanCollide = false
+			v.CastShadow = false
 
+		elseif v:IsA("Decal") or v:IsA("Texture") then
 
-		elseif obj:IsA("Decal") or obj:IsA("Texture") then
+			v.Transparency = 1
 
-			obj.Transparency = 1
+		elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
 
-
-		elseif obj:IsA("ParticleEmitter") 
-		or obj:IsA("Trail") then
-
-			obj.Enabled = false
+			v.Enabled = false
 
 		end
 
@@ -234,14 +173,13 @@ task.spawn(function()
 
 
 
-	-- Weld clone
+	-- WELD
 
 	for _,newPart in ipairs(NewModel:GetDescendants()) do
 
 		if newPart:IsA("BasePart") then
 
 			local oldPart = OldModel:FindFirstChild(newPart.Name,true)
-
 
 			if oldPart and oldPart:IsA("BasePart") then
 
@@ -253,25 +191,338 @@ task.spawn(function()
 
 
 				local weld = Instance.new("WeldConstraint")
-
 				weld.Part0 = oldPart
 				weld.Part1 = newPart
 				weld.Parent = newPart
 
 			end
+		end
+	end
+
+
+
+	--// ANIMATION TRANSFER
+
+	local OldAnimator = OldModel:FindFirstChildWhichIsA("Animator",true)
+	local NewAnimator = NewModel:FindFirstChildWhichIsA("Animator",true)
+
+
+
+	-- Create Animator if missing
+
+	if not NewAnimator then
+
+		local Controller = NewModel:FindFirstChildOfClass("AnimationController")
+
+		if not Controller then
+
+			Controller = Instance.new("AnimationController")
+			Controller.Parent = NewModel
 
 		end
+
+
+		NewAnimator = Instance.new("Animator")
+		NewAnimator.Parent = Controller
 
 	end
 
 
 
-	-- Start animation mirroring
+	if OldAnimator then
 
-	SetupAnimationReplay(OldModel,NewModel)
+		print("Animation copying enabled")
 
+
+		OldAnimator.AnimationPlayed:Connect(function(oldTrack)
+
+
+			local oldAnimation = oldTrack.Animation
+
+
+			if oldAnimation then
+
+
+				local newAnimation = Instance.new("Animation")
+
+				newAnimation.AnimationId = oldAnimation.AnimationId
+
+
+
+				local newTrack = NewAnimator:LoadAnimation(newAnimation)
+
+
+				newTrack.Priority = oldTrack.Priority
+				newTrack.Looped = oldTrack.Looped
+
+
+				newTrack:Play(
+					0,
+					oldTrack.WeightCurrent,
+					oldTrack.Speed
+				)
+
+
+
+				task.spawn(function()
+
+					while oldTrack.IsPlaying and newTrack.IsPlaying do
+
+						newTrack.TimePosition = oldTrack.TimePosition
+						newTrack:AdjustSpeed(oldTrack.Speed)
+
+						task.wait()
+
+					end
+
+
+					if newTrack then
+						newTrack:Stop()
+					end
+
+				end)
+
+			end
+
+		end)
+
+	else
+
+		warn("Old animator not found")
+
+	end
 
 end)
+
+
+
+--// ACCELERATION EFFECT (Made in Heaven style spin + speed-up + tp-walk)
+
+local function DoAccelerationEffect()
+
+	if accelActive then
+		return -- already running, don't stack it
+	end
+
+	accelActive = true
+
+	task.spawn(function()
+
+		task.wait(ACCEL_DELAY)
+
+		local Player = game.Players.LocalPlayer
+		local Character = Player.Character
+
+		if not Character then
+			accelActive = false
+			return
+		end
+
+		local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+		local HRP = Character:FindFirstChild("HumanoidRootPart")
+
+		if not Humanoid or not HRP then
+			accelActive = false
+			return
+		end
+
+
+		-- one-shot sound
+
+		local sfx = Instance.new("Sound")
+		sfx.SoundId = ACCEL_ONESHOT_ID
+		sfx.Parent = HRP
+		sfx:Play()
+		Debris:AddItem(sfx, 10)
+
+
+		local originalWalkSpeed = Humanoid.WalkSpeed
+		local originalJumpPower = Humanoid.JumpPower
+		local originalAutoRotate = Humanoid.AutoRotate
+
+		-- lock movement/jumping and take rotation into our own hands for the whole effect
+		Humanoid.WalkSpeed = 0
+		Humanoid.JumpPower = 0
+		Humanoid.AutoRotate = false
+
+		local function restoreHumanoid()
+			if Humanoid and Humanoid.Parent then
+				Humanoid.WalkSpeed = originalWalkSpeed
+				Humanoid.JumpPower = originalJumpPower
+				Humanoid.AutoRotate = originalAutoRotate
+			end
+		end
+
+		-- capture how high the character normally sits above the ground once, then
+		-- reuse that offset every frame so ground-snapping works for any rig/HipHeight
+		local heightOffset = 0
+		do
+			local groundY = GetSnappedY(HRP.Position, 0, Character, nil)
+			if groundY then
+				heightOffset = HRP.Position.Y - groundY
+			end
+		end
+
+
+		--// PHASE 1: CIRCLE — the character actually runs a full circular path
+		-- (not spinning in place). Parametrized by elapsed time / duration rather than
+		-- accumulated each frame, so there's no drift and the shape stays exact.
+
+		local startCFrame = HRP.CFrame
+
+		local flatLook = Vector3.new(startCFrame.LookVector.X, 0, startCFrame.LookVector.Z)
+		if flatLook.Magnitude < 0.001 then
+			flatLook = Vector3.new(0, 0, -1)
+		end
+		flatLook = flatLook.Unit
+
+		local flatRight = Vector3.new(startCFrame.RightVector.X, 0, startCFrame.RightVector.Z)
+		if flatRight.Magnitude < 0.001 then
+			flatRight = Vector3.new(1, 0, 0)
+		end
+		flatRight = flatRight.Unit * CIRCLE_DIRECTION
+
+		local circleCenter = HRP.Position + (flatRight * CIRCLE_RADIUS)
+		local circumference = 2 * math.pi * CIRCLE_RADIUS
+		local circleDuration = circumference / ACCEL_WALKSPEED -- same speed as the tp-walk, for a seamless handoff
+
+		local circleStart = tick()
+		local circleFinished = false
+
+		local circleConn
+		circleConn = RunService.RenderStepped:Connect(function(dt)
+
+			dt = math.min(dt, ACCEL_MAX_DT)
+
+			local stillValid = Character.Parent and HRP.Parent and Humanoid.Health > 0
+			local elapsed = tick() - circleStart
+
+			if elapsed >= circleDuration or not stillValid then
+				circleConn:Disconnect()
+				circleFinished = true
+				return
+			end
+
+			local t = elapsed / circleDuration
+			local angle = t * 2 * math.pi
+
+			local horizontalOffset = (flatRight * -math.cos(angle) + flatLook * math.sin(angle)) * CIRCLE_RADIUS
+			local flatPos = circleCenter + horizontalOffset
+
+			local snappedY = GetSnappedY(flatPos, heightOffset, Character, HRP.Position.Y)
+			local newPos = Vector3.new(flatPos.X, snappedY, flatPos.Z)
+
+			-- tangent of the circle at this angle = direction of travel = facing direction
+			local tangent = (flatRight * math.sin(angle) + flatLook * math.cos(angle))
+
+			if tangent.Magnitude > 0.001 then
+				HRP.CFrame = CFrame.lookAt(newPos, newPos + tangent.Unit)
+			else
+				HRP.CFrame = CFrame.new(newPos) * (HRP.CFrame - HRP.CFrame.Position)
+			end
+
+		end)
+
+		-- wait for the circle to actually finish before starting the tp-walk phase
+		while not circleFinished do
+			task.wait()
+		end
+
+		if not (Character.Parent and HRP.Parent and Humanoid.Health > 0) then
+			restoreHumanoid()
+			accelActive = false
+			return
+		end
+
+
+		--// PHASE 2: TP-WALK — move the character via CFrame each frame at up to
+		-- ACCEL_WALKSPEED studs/sec instead of relying on Humanoid.WalkSpeed, so it
+		-- "imitates" an 85 walkspeed. Cleaned up with: dt clamping (no lag-spike jumps),
+		-- a short speed ramp in/out (no instant start/stop snap), ground-snapping via
+		-- raycast (stays glued to slopes/stairs instead of floating or clipping), and
+		-- shiftlock-aware facing (follows the camera when shiftlock is on, otherwise
+		-- eases toward the movement direction).
+
+		local startTime = tick()
+
+		local conn
+		conn = RunService.RenderStepped:Connect(function(dt)
+
+			dt = math.min(dt, ACCEL_MAX_DT)
+
+			local stillValid = Character.Parent and HRP.Parent and Humanoid.Health > 0
+			local elapsed = tick() - startTime
+
+			if elapsed >= ACCEL_DURATION or not stillValid then
+
+				conn:Disconnect()
+				restoreHumanoid()
+				accelActive = false
+				return
+
+			end
+
+
+			-- ease the speed in for the first ACCEL_RAMP_TIME seconds and back out for the last
+			local remaining = ACCEL_DURATION - elapsed
+			local rampMultiplier = 1
+
+			if elapsed < ACCEL_RAMP_TIME then
+				rampMultiplier = elapsed / ACCEL_RAMP_TIME
+			elseif remaining < ACCEL_RAMP_TIME then
+				rampMultiplier = remaining / ACCEL_RAMP_TIME
+			end
+
+			rampMultiplier = math.clamp(rampMultiplier, 0, 1)
+			local speed = ACCEL_WALKSPEED * rampMultiplier
+
+
+			local moveDir = Humanoid.MoveDirection
+			local currentLook = HRP.CFrame.LookVector
+			local currentPos = HRP.Position
+			local flatPos = currentPos
+
+			if moveDir.Magnitude > 0 then
+				flatPos = currentPos + (moveDir.Unit * speed * dt)
+			end
+
+			local snappedY = GetSnappedY(flatPos, heightOffset, Character, currentPos.Y)
+			local newPos = Vector3.new(flatPos.X, snappedY, flatPos.Z)
+
+
+			local targetLook
+
+			if IsShiftlockActive() then
+
+				local camera = workspace.CurrentCamera
+				local camLook = camera and Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z) or currentLook
+
+				targetLook = camLook.Magnitude > 0.001 and camLook.Unit or currentLook
+
+			elseif moveDir.Magnitude > 0 then
+
+				targetLook = Vector3.new(moveDir.X, 0, moveDir.Z).Unit
+
+			else
+
+				targetLook = currentLook
+
+			end
+
+			local alpha = math.clamp(ACCEL_TURN_SPEED * dt, 0, 1)
+			local easedLook = currentLook:Lerp(targetLook, alpha)
+
+			if easedLook.Magnitude < 0.001 then
+				easedLook = targetLook
+			end
+
+			HRP.CFrame = CFrame.lookAt(newPos, newPos + easedLook)
+
+		end)
+
+	end)
+
+end
 
 
 
@@ -300,14 +551,27 @@ local function SwapSound(sound)
 		if playing then
 
 			sound:Stop()
-
 			sound.TimePosition = data.Start
-
 			sound:Play()
 
 		else
 
 			sound.TimePosition = data.Start
+
+		end
+
+
+		-- hook the acceleration trigger onto this sound if it's the one we care about
+
+		if id == "5968741444" or data.Id:match("%d+") == ACCEL_TRIGGER_ID then
+
+			sound.Played:Connect(function()
+				DoAccelerationEffect()
+			end)
+
+			if playing then
+				DoAccelerationEffect()
+			end
 
 		end
 
@@ -317,24 +581,15 @@ end
 
 
 
--- Existing sounds
-
 for _,obj in ipairs(game:GetDescendants()) do
-
 	SwapSound(obj)
-
 end
 
-
-
--- New sounds
 
 game.DescendantAdded:Connect(function(obj)
 
 	task.defer(function()
-
 		SwapSound(obj)
-
 	end)
 
 end)
