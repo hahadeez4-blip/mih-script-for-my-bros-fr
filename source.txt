@@ -1,12 +1,15 @@
+
+
+--// NOTIFICATION
 game:GetService("StarterGui"):SetCore("SendNotification",{
 	Title = "Notification", -- Required
-	Text = "Thanks For Using MIH Script By Luis :)", -- Required
+	Text = "Thanks For Using " .. (SCRIPT_MODE == "cmoon" and "C-Moon" or "MIH") .. " Script By Luis :)", -- Required
 	Icon = "rbxassetid://242239336" -- Optional
 })
 
 --// SETTINGS
 
-local AudioSwaps = {
+local AudioSwaps = (SCRIPT_MODE == "cmoon") and {} or {
 	["213603013"] = {
 		Id = "rbxassetid://134580877907499",
 		Start = 1.1
@@ -80,13 +83,11 @@ local accelActive = false -- guard so it can't be re-triggered while already run
 --// SHIFTLOCK HELPER
 
 local function IsShiftlockActive()
-	-- Roblox's default shiftlock (and most custom ones) lock the mouse to the
-	-- center of the screen while active, so this is the standard way to detect it.
 	return UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
 end
 
 
---// GROUND SNAP HELPER (keeps the tp-walk glued to slopes/stairs instead of floating/clipping)
+--// GROUND SNAP HELPER
 
 local function GetSnappedY(position, heightOffset, character, fallbackY)
 
@@ -145,36 +146,68 @@ task.spawn(function()
 		return
 	end
 
+	local assetPath = (SCRIPT_MODE == "cmoon") 
+		and game:GetService("ReplicatedStorage").Assets.UltimateCMoon 
+		or game:GetService("ReplicatedStorage").Assets.UltimateMiH
 
-	local NewModel = game:GetService("ReplicatedStorage")
-		.Assets
-		.UltimateMiH
-		:Clone()
-
-
-
-	-- REMOVE PARTS
-
-	local Remove = {
-		{"LowerTorso","HorseL"},
-		{"LowerTorso","HorseR"},
-		{"Head","LHead"},
-		{"Head","RHead"}
-	}
+	local NewModel = assetPath:Clone()
 
 
-	for _,data in ipairs(Remove) do
 
-		local folder = NewModel:FindFirstChild(data[1])
+	-- REMOVE PARTS (Mode specific)
+	if SCRIPT_MODE == "cmoon" then
+		local Remove = {
+			{"Head","LHead"},
+			{"Head","RHead"},
+			{"RightUpperArm","RArm"},
+			{"LeftUpperArm","LArm"}
+		}
 
-		if folder then
+		for _,data in ipairs(Remove) do
 
-			local part = folder:FindFirstChild(data[2])
+			local folder = NewModel:FindFirstChild(data[1])
 
-			if part then
-				part:Destroy()
+			if folder then
+
+				local part = folder:FindFirstChild(data[2])
+
+				if part then
+					part:Destroy()
+				end
+
 			end
+		end
+	else
+		local Remove = {
+			{"LowerTorso","HorseL"},
+			{"LowerTorso","HorseR"},
+			{"Head","LHead"},
+			{"Head","RHead"}
+		}
 
+		for _,data in ipairs(Remove) do
+
+			local folder = NewModel:FindFirstChild(data[1])
+
+			if folder then
+
+				local part = folder:FindFirstChild(data[2])
+
+				if part then
+					part:Destroy()
+				end
+
+			end
+		end
+	end
+
+
+
+	-- AGGRESSIVE SCAN & DESTROY FOR ANY REMAINING RArm OR LArm ANYWHERE IN THE NEW MODEL
+	for _, descendant in ipairs(NewModel:GetDescendants()) do
+		local name = descendant.Name
+		if name == "RArm" or name == "LArm" then
+			descendant:Destroy()
 		end
 	end
 
@@ -182,6 +215,15 @@ task.spawn(function()
 
 	NewModel.Parent = workspace
 	NewModel:PivotTo(OldModel:GetPivot())
+
+
+
+	-- UNANCHOR ALL PARTS IN NEW MODEL
+	for _, v in ipairs(NewModel:GetDescendants()) do
+		if v:IsA("BasePart") then
+			v.Anchored = false
+		end
+	end
 
 
 
@@ -237,107 +279,84 @@ task.spawn(function()
 
 
 
-	--// ANIMATION TRANSFER
+	--// ANIMATION TRANSFER (Directly targeting AnimationController.Animator)
 
-	local OldAnimator = OldModel:FindFirstChildWhichIsA("Animator",true)
-	local NewAnimator = NewModel:FindFirstChildWhichIsA("Animator",true)
-
-
-
-	-- Create Animator if missing
-
-	if not NewAnimator then
-
-		local Controller = NewModel:FindFirstChildOfClass("AnimationController")
-
-		if not Controller then
-
-			Controller = Instance.new("AnimationController")
-			Controller.Parent = NewModel
-
+	local function GetSpecificAnimator(model)
+		local controller = model:FindFirstChild("AnimationController")
+		if controller and controller:IsA("AnimationController") then
+			local animator = controller:FindFirstChild("Animator")
+			if animator and animator:IsA("Animator") then
+				return animator
+			else
+				local newAnimator = Instance.new("Animator")
+				newAnimator.Name = "Animator"
+				newAnimator.Parent = controller
+				return newAnimator
+			end
+		else
+			local newController = Instance.new("AnimationController")
+			newController.Name = "AnimationController"
+			newController.Parent = model
+			local newAnimator = Instance.new("Animator")
+			newAnimator.Name = "Animator"
+			newAnimator.Parent = newController
+			return newAnimator
 		end
-
-
-		NewAnimator = Instance.new("Animator")
-		NewAnimator.Parent = Controller
-
 	end
 
-
+	local OldAnimator = GetSpecificAnimator(OldModel)
+	local NewAnimator = GetSpecificAnimator(NewModel)
 
 	if OldAnimator then
-
-		print("Animation copying enabled")
-
+		print("Animation copying enabled via AnimationController.Animator for: " .. OldModel.Name)
 
 		OldAnimator.AnimationPlayed:Connect(function(oldTrack)
-
-
 			local oldAnimation = oldTrack.Animation
-
-
 			if oldAnimation then
-
-
 				local newAnimation = Instance.new("Animation")
-
 				newAnimation.AnimationId = oldAnimation.AnimationId
 
-
-
-				local newTrack = NewAnimator:LoadAnimation(newAnimation)
-
-
-				newTrack.Priority = oldTrack.Priority
-				newTrack.Looped = oldTrack.Looped
-
-
-				newTrack:Play(
-					0,
-					oldTrack.WeightCurrent,
-					oldTrack.Speed
-				)
-
-
-
-				task.spawn(function()
-
-					while oldTrack.IsPlaying and newTrack.IsPlaying do
-
-						newTrack.TimePosition = oldTrack.TimePosition
-						newTrack:AdjustSpeed(oldTrack.Speed)
-
-						task.wait()
-
-					end
-
-
-					if newTrack then
-						newTrack:Stop()
-					end
-
+				local success, newTrack = pcall(function()
+					return NewAnimator:LoadAnimation(newAnimation)
 				end)
 
+				if success and newTrack then
+					newTrack.Priority = oldTrack.Priority
+					newTrack.Looped = oldTrack.Looped
+
+					newTrack:Play(
+						0,
+						oldTrack.WeightCurrent,
+						oldTrack.Speed
+					)
+
+					task.spawn(function()
+						while oldTrack.IsPlaying and newTrack.IsPlaying do
+							newTrack.TimePosition = oldTrack.TimePosition
+							newTrack:AdjustSpeed(oldTrack.Speed)
+							task.wait()
+						end
+						if newTrack then
+							newTrack:Stop()
+						end
+					end)
+				end
 			end
-
 		end)
-
 	else
-
-		warn("Old animator not found")
-
+		warn("Old animator could not be found or created")
 	end
 
 end)
 
 
 
---// ACCELERATION EFFECT (Made in Heaven style spin + speed-up + tp-walk)
+--// ACCELERATION EFFECT
 
 local function DoAccelerationEffect()
 
-	if accelActive then
-		return -- already running, don't stack it
+	if accelActive or SCRIPT_MODE == "cmoon" then
+		return
 	end
 
 	accelActive = true
@@ -363,8 +382,6 @@ local function DoAccelerationEffect()
 		end
 
 
-		-- one-shot sound
-
 		local sfx = Instance.new("Sound")
 		sfx.SoundId = ACCEL_ONESHOT_ID
 		sfx.Parent = HRP
@@ -376,7 +393,6 @@ local function DoAccelerationEffect()
 		local originalJumpPower = Humanoid.JumpPower
 		local originalAutoRotate = Humanoid.AutoRotate
 
-		-- lock movement/jumping and take rotation into our own hands for the whole effect
 		Humanoid.WalkSpeed = 0
 		Humanoid.JumpPower = 0
 		Humanoid.AutoRotate = false
@@ -389,8 +405,6 @@ local function DoAccelerationEffect()
 			end
 		end
 
-		-- capture how high the character normally sits above the ground once, then
-		-- reuse that offset every frame so ground-snapping works for any rig/HipHeight
 		local heightOffset = 0
 		do
 			local groundY = GetSnappedY(HRP.Position, 0, Character, nil)
@@ -399,10 +413,6 @@ local function DoAccelerationEffect()
 			end
 		end
 
-
-		--// PHASE 1: CIRCLE — the character actually runs a full circular path
-		-- (not spinning in place). Parametrized by elapsed time / duration rather than
-		-- accumulated each frame, so there's no drift and the shape stays exact.
 
 		local startCFrame = HRP.CFrame
 
@@ -420,7 +430,7 @@ local function DoAccelerationEffect()
 
 		local circleCenter = HRP.Position + (flatRight * CIRCLE_RADIUS)
 		local circumference = 2 * math.pi * CIRCLE_RADIUS
-		local circleDuration = circumference / ACCEL_WALKSPEED -- same speed as the tp-walk, for a seamless handoff
+		local circleDuration = circumference / ACCEL_WALKSPEED
 
 		local circleStart = tick()
 		local circleFinished = false
@@ -448,7 +458,6 @@ local function DoAccelerationEffect()
 			local snappedY = GetSnappedY(flatPos, heightOffset, Character, HRP.Position.Y)
 			local newPos = Vector3.new(flatPos.X, snappedY, flatPos.Z)
 
-			-- tangent of the circle at this angle = direction of travel = facing direction
 			local tangent = (flatRight * math.sin(angle) + flatLook * math.cos(angle))
 
 			if tangent.Magnitude > 0.001 then
@@ -459,7 +468,6 @@ local function DoAccelerationEffect()
 
 		end)
 
-		-- wait for the circle to actually finish before starting the tp-walk phase
 		while not circleFinished do
 			task.wait()
 		end
@@ -470,14 +478,6 @@ local function DoAccelerationEffect()
 			return
 		end
 
-
-		--// PHASE 2: TP-WALK — move the character via CFrame each frame at up to
-		-- ACCEL_WALKSPEED studs/sec instead of relying on Humanoid.WalkSpeed, so it
-		-- "imitates" an 85 walkspeed. Cleaned up with: dt clamping (no lag-spike jumps),
-		-- a short speed ramp in/out (no instant start/stop snap), ground-snapping via
-		-- raycast (stays glued to slopes/stairs instead of floating or clipping), and
-		-- shiftlock-aware facing (follows the camera when shiftlock is on, otherwise
-		-- eases toward the movement direction).
 
 		local startTime = tick()
 
@@ -499,7 +499,6 @@ local function DoAccelerationEffect()
 			end
 
 
-			-- ease the speed in for the first ACCEL_RAMP_TIME seconds and back out for the last
 			local remaining = ACCEL_DURATION - elapsed
 			local rampMultiplier = 1
 
@@ -566,7 +565,7 @@ end
 
 local function SwapSound(sound)
 
-	if not sound:IsA("Sound") then
+	if not sound:IsA("Sound") or SCRIPT_MODE == "cmoon" then
 		return
 	end
 
@@ -596,8 +595,6 @@ local function SwapSound(sound)
 
 		end
 
-
-		-- hook the acceleration trigger onto this sound if it's the one we care about
 
 		if id == "5968741444" or data.Id:match("%d+") == ACCEL_TRIGGER_ID then
 
