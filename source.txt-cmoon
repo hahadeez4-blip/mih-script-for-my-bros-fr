@@ -1,4 +1,6 @@
-
+--// CONFIGURATION
+-- Options: "mih" (Made in Heaven) or "cmoon" (C-Moon)
+local SCRIPT_MODE = "cmoon" 
 
 --// NOTIFICATION
 game:GetService("StarterGui"):SetCore("SendNotification",{
