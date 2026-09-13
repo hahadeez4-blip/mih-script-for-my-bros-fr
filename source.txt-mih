@@ -1,17 +1,16 @@
 --// CONFIGURATION
--- Options: "mih" (Made in Heaven) or "cmoon" (C-Moon)
-local SCRIPT_MODE = "mih" 
+local SCRIPT_MODE = "mih" -- Set to "mih" (Made in Heaven)
 
 --// NOTIFICATION
 game:GetService("StarterGui"):SetCore("SendNotification",{
-	Title = "Notification", -- Required
-	Text = "Thanks For Using " .. (SCRIPT_MODE == "cmoon" and "C-Moon" or "MIH") .. " Script By Luis :)", -- Required
-	Icon = "rbxassetid://242239336" -- Optional
+	Title = "Notification",
+	Text = "Thanks For Using MIH Script By Luis :)",
+	Icon = "rbxassetid://242239336"
 })
 
 --// SETTINGS
 
-local AudioSwaps = (SCRIPT_MODE == "cmoon") and {} or {
+local AudioSwaps = {
 	["213603013"] = {
 		Id = "rbxassetid://134580877907499",
 		Start = 1.1
@@ -61,25 +60,25 @@ local AudioSwaps = (SCRIPT_MODE == "cmoon") and {} or {
 
 --// ACCELERATION EFFECT SETTINGS
 
-local ACCEL_TRIGGER_ID   = "89772764055022"          -- the swapped-in sound that triggers the effect
-local ACCEL_DELAY        = 2.25                      -- seconds to wait after the sound starts playing
-local ACCEL_DURATION     = 20                        -- how long the straight tp-walk part lasts (after the circle)
-local ACCEL_ONESHOT_ID   = "rbxassetid://123559127105316" -- plays once when the effect kicks in
-local ACCEL_WALKSPEED    = 120                        -- simulated walkspeed for the tp-walk
-local ACCEL_TURN_SPEED   = 12                        -- how fast the character rotates to face movement (higher = snappier)
-local ACCEL_MAX_DT       = 1/30                      -- clamps dt after lag spikes so it can't "jump" too far in one frame
-local ACCEL_RAMP_TIME    = 0.15                      -- seconds to ease the tp-walk speed in/out so it doesn't feel abrupt
+local ACCEL_TRIGGER_ID   = "89772764055022"          
+local ACCEL_DELAY        = 2.25                      
+local ACCEL_DURATION     = 20                        
+local ACCEL_ONESHOT_ID   = "rbxassetid://123559127105316" 
+local ACCEL_WALKSPEED    = 120                        
+local ACCEL_TURN_SPEED   = 12                        
+local ACCEL_MAX_DT       = 1/30                      
+local ACCEL_RAMP_TIME    = 0.15                      
 
-local CIRCLE_RADIUS      = 10                        -- studs — how wide the circle is
-local CIRCLE_DIRECTION   = 1                         -- 1 = curves right, -1 = curves left
+local CIRCLE_RADIUS      = 10                        
+local CIRCLE_DIRECTION   = 1                         
 
-local GROUND_RAY_DISTANCE = 10                       -- studs to raycast down each frame to stay glued to the floor
+local GROUND_RAY_DISTANCE = 10                       
 
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
 local UserInputService = game:GetService("UserInputService")
 
-local accelActive = false -- guard so it can't be re-triggered while already running
+local accelActive = false 
 
 
 --// SHIFTLOCK HELPER
@@ -148,64 +147,35 @@ task.spawn(function()
 		return
 	end
 
-	local assetPath = (SCRIPT_MODE == "cmoon") 
-		and game:GetService("ReplicatedStorage").Assets.UltimateCMoon 
-		or game:GetService("ReplicatedStorage").Assets.UltimateMiH
-
+	local assetPath = game:GetService("ReplicatedStorage").Assets.UltimateMiH
 	local NewModel = assetPath:Clone()
 
 
+	-- REMOVE PARTS (MIH specific)
+	local Remove = {
+		{"LowerTorso","HorseL"},
+		{"LowerTorso","HorseR"},
+		{"Head","LHead"},
+		{"Head","RHead"}
+	}
 
-	-- REMOVE PARTS (Mode specific)
-	if SCRIPT_MODE == "cmoon" then
-		local Remove = {
-			{"Head","LHead"},
-			{"Head","RHead"},
-			{"RightUpperArm","RArm"},
-			{"LeftUpperArm","LArm"}
-		}
+	for _,data in ipairs(Remove) do
 
-		for _,data in ipairs(Remove) do
+		local folder = NewModel:FindFirstChild(data[1])
 
-			local folder = NewModel:FindFirstChild(data[1])
+		if folder then
 
-			if folder then
+			local part = folder:FindFirstChild(data[2])
 
-				local part = folder:FindFirstChild(data[2])
-
-				if part then
-					part:Destroy()
-				end
-
+			if part then
+				part:Destroy()
 			end
-		end
-	else
-		local Remove = {
-			{"LowerTorso","HorseL"},
-			{"LowerTorso","HorseR"},
-			{"Head","LHead"},
-			{"Head","RHead"}
-		}
 
-		for _,data in ipairs(Remove) do
-
-			local folder = NewModel:FindFirstChild(data[1])
-
-			if folder then
-
-				local part = folder:FindFirstChild(data[2])
-
-				if part then
-					part:Destroy()
-				end
-
-			end
 		end
 	end
 
 
-
-	-- AGGRESSIVE SCAN & DESTROY FOR ANY REMAINING RArm OR LArm ANYWHERE IN THE NEW MODEL
+	-- AGGRESSIVE SCAN & DESTROY FOR ANY REMAINING RArm OR LArm
 	for _, descendant in ipairs(NewModel:GetDescendants()) do
 		local name = descendant.Name
 		if name == "RArm" or name == "LArm" then
@@ -214,10 +184,8 @@ task.spawn(function()
 	end
 
 
-
 	NewModel.Parent = workspace
 	NewModel:PivotTo(OldModel:GetPivot())
-
 
 
 	-- UNANCHOR ALL PARTS IN NEW MODEL
@@ -228,32 +196,19 @@ task.spawn(function()
 	end
 
 
-
-	-- HIDE OLD MODEL
-
+	-- DISABLE OLD MODEL EXTRAS
 	for _,v in ipairs(OldModel:GetDescendants()) do
-
-		if v:IsA("BasePart") then
-
+		if v:IsA("Decal") or v:IsA("Texture") then
 			v.Transparency = 1
-			v.CanCollide = false
-			v.CastShadow = false
-
-		elseif v:IsA("Decal") or v:IsA("Texture") then
-
-			v.Transparency = 1
-
 		elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
-
 			v.Enabled = false
-
 		end
-
 	end
 
 
+	-- WELD & SETUP LIVE TRANSPARENCY SYNC (Inverse: Old >= 0.5 -> New = 0, else New = 1)
 
-	-- WELD
+	local transparencyPairs = {}
 
 	for _,newPart in ipairs(NewModel:GetDescendants()) do
 
@@ -275,13 +230,28 @@ task.spawn(function()
 				weld.Part1 = newPart
 				weld.Parent = newPart
 
+				table.insert(transparencyPairs, {Old = oldPart, New = newPart})
+
 			end
 		end
 	end
 
+	RunService.RenderStepped:Connect(function()
+		for _, pair in ipairs(transparencyPairs) do
+			if pair.Old and pair.Old.Parent and pair.New and pair.New.Parent then
+				local oldAlpha = pair.Old.Transparency
+				if oldAlpha >= 0.5 then
+					pair.New.Transparency = 0
+				else
+					pair.New.Transparency = 1
+				end
+			end
+		end
+	end)
 
 
-	--// ANIMATION TRANSFER (Directly targeting AnimationController.Animator)
+
+	--// ANIMATION SYNC
 
 	local function GetSpecificAnimator(model)
 		local controller = model:FindFirstChild("AnimationController")
@@ -309,10 +279,12 @@ task.spawn(function()
 	local OldAnimator = GetSpecificAnimator(OldModel)
 	local NewAnimator = GetSpecificAnimator(NewModel)
 
-	if OldAnimator then
-		print("Animation copying enabled via AnimationController.Animator for: " .. OldModel.Name)
+	if OldAnimator and NewAnimator then
+		print("Unfrozen live animation syncing enabled for: " .. OldModel.Name)
 
-		OldAnimator.AnimationPlayed:Connect(function(oldTrack)
+		local activeMirrorConns = {}
+
+		local function MirrorTrack(oldTrack)
 			local oldAnimation = oldTrack.Animation
 			if oldAnimation then
 				local newAnimation = Instance.new("Animation")
@@ -326,27 +298,34 @@ task.spawn(function()
 					newTrack.Priority = oldTrack.Priority
 					newTrack.Looped = oldTrack.Looped
 
-					newTrack:Play(
-						0,
-						oldTrack.WeightCurrent,
-						oldTrack.Speed
-					)
+					newTrack:Play(0, oldTrack.WeightCurrent, 0)
 
-					task.spawn(function()
-						while oldTrack.IsPlaying and newTrack.IsPlaying do
-							newTrack.TimePosition = oldTrack.TimePosition
-							newTrack:AdjustSpeed(oldTrack.Speed)
-							task.wait()
+					local conn
+					conn = RunService.RenderStepped:Connect(function()
+						if not oldTrack.IsPlaying or not newTrack.IsPlaying or not oldTrack.Parent or not newTrack.Parent then
+							conn:Disconnect()
+							pcall(function() newTrack:Stop() end)
+							return
 						end
-						if newTrack then
-							newTrack:Stop()
-						end
+						newTrack.TimePosition = oldTrack.TimePosition
+						newTrack:AdjustWeight(oldTrack.WeightCurrent, 0)
 					end)
+					table.insert(activeMirrorConns, conn)
 				end
 			end
+		end
+
+		for _, activeTrack in ipairs(OldAnimator:GetPlayingAnimationTracks()) do
+			task.spawn(function()
+				MirrorTrack(activeTrack)
+			end)
+		end
+
+		OldAnimator.AnimationPlayed:Connect(function(oldTrack)
+			MirrorTrack(oldTrack)
 		end)
 	else
-		warn("Old animator could not be found or created")
+		warn("Old or New animator could not be found or created")
 	end
 
 end)
@@ -357,7 +336,7 @@ end)
 
 local function DoAccelerationEffect()
 
-	if accelActive or SCRIPT_MODE == "cmoon" then
+	if accelActive then
 		return
 	end
 
@@ -567,7 +546,7 @@ end
 
 local function SwapSound(sound)
 
-	if not sound:IsA("Sound") or SCRIPT_MODE == "cmoon" then
+	if not sound:IsA("Sound") then
 		return
 	end
 
