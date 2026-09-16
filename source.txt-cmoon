@@ -1,286 +1,713 @@
+--//========================================================
 --// CONFIGURATION
-local SCRIPT_MODE = "cmoon" -- Set to "C-Moon"
+--//========================================================
 
+local SCRIPT_MODE = "cmoon"
+
+
+--//========================================================
 --// NOTIFICATION
-game:GetService("StarterGui"):SetCore("SendNotification",{
-	Title = "Notification",
-	Text = "Thanks For Using C-Moon Script By Luis :)",
-	Icon = "rbxassetid://242239336"
+--//========================================================
+
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Notification",
+    Text = "Thanks For Using C-Moon Script By Luis :)",
+    Icon = "rbxassetid://242239336"
 })
 
---// SETTINGS (Add your C-Moon custom audio swaps here later)
+
+--//========================================================
+--// AUDIO SWAPS
+--//========================================================
+
 local AudioSwaps = {
-	-- Example format:
-	-- ["ORIGINAL_ID"] = { Id = "rbxassetid://NEW_ID", Start = 0 }
+    -- ["ORIGINAL_ID"] = {
+    --  Id = "rbxassetid://NEW_ID",
+    --  Start = 0
+    -- }
 }
 
 
+--//========================================================
+--// SERVICES
+--//========================================================
+
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local Debris = game:GetService("Debris")
-local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Player = Players.LocalPlayer
 
 
---// FIND PLAYER MODEL
+--//========================================================
+--// FIND OWNED MODEL
+--//========================================================
 
 local function FindOwnedModel()
 
-	local Living = workspace:WaitForChild("Living")
-	local Player = game.Players.LocalPlayer
+    local Living = workspace:WaitForChild("Living")
 
-	for _,model in ipairs(Living:GetChildren()) do
+    for _, model in ipairs(Living:GetChildren()) do
 
-		for _,obj in ipairs(model:GetDescendants()) do
+        for _, obj in ipairs(model:GetDescendants()) do
 
-			if obj:IsA("ObjectValue") and obj.Name == "Owner" then
+            if obj:IsA("ObjectValue") and obj.Name == "Owner" then
 
-				if obj.Value == Player 
-				or (obj.Value and obj.Value.Name == Player.Name) then
+                if obj.Value == Player
+                    or (obj.Value and obj.Value.Name == Player.Name) then
 
-					return model
+                    return model
+                end
+            end
+        end
+    end
 
-				end
-			end
-		end
-	end
-
+    return nil
 end
 
 
-
---// CREATE MODEL
+--//========================================================
+--// C-MOON
+--//========================================================
 
 task.spawn(function()
 
-	local OldModel = FindOwnedModel()
+    local OldModel = FindOwnedModel()
 
-	if not OldModel then
-		warn("No owned model found")
-		return
-	end
-
-	local assetPath = game:GetService("ReplicatedStorage").Assets.UltimateCMoon
-	local NewModel = assetPath:Clone()
+    if not OldModel then
+        warn("C-Moon: No owned model found.")
+        return
+    end
 
 
-	-- REMOVE PARTS (C-Moon specific)
-	local Remove = {
-		{"Head","LHead"},
-		{"Head","RHead"},
-		{"RightUpperArm","RArm"},
-		{"LeftUpperArm","LArm"}
-	}
+    local Assets = ReplicatedStorage:WaitForChild("Assets")
+    local CmoonAsset = Assets:WaitForChild("UltimateCMoon")
 
-	for _,data in ipairs(Remove) do
-
-		local folder = NewModel:FindFirstChild(data[1])
-
-		if folder then
-
-			local part = folder:FindFirstChild(data[2])
-
-			if part then
-				part:Destroy()
-			end
-
-		end
-	end
+    local NewModel = CmoonAsset:Clone()
 
 
-	-- AGGRESSIVE SCAN & DESTROY FOR ANY REMAINING RArm OR LArm
-	for _, descendant in ipairs(NewModel:GetDescendants()) do
-		local name = descendant.Name
-		if name == "RArm" or name == "LArm" then
-			descendant:Destroy()
-		end
-	end
+    --//====================================================
+    --// REMOVE UNWANTED PARTS
+    --//====================================================
+
+    local Remove = {
+        {"Head", "LHead"},
+        {"Head", "RHead"},
+        {"RightUpperArm", "RArm"},
+        {"LeftUpperArm", "LArm"}
+    }
 
 
-	NewModel.Parent = workspace
-	NewModel:PivotTo(OldModel:GetPivot())
+    for _, data in ipairs(Remove) do
+
+        local folder = NewModel:FindFirstChild(data[1])
+
+        if folder then
+
+            local part = folder:FindFirstChild(data[2])
+
+            if part then
+                part:Destroy()
+            end
+
+        end
+    end
 
 
-	-- UNANCHOR ALL PARTS IN NEW MODEL
-	for _, v in ipairs(NewModel:GetDescendants()) do
-		if v:IsA("BasePart") then
-			v.Anchored = false
-		end
-	end
+    --// Remove any remaining RArm/LArm
+    local RemoveList = {}
+
+    for _, obj in ipairs(NewModel:GetDescendants()) do
+
+        if obj.Name == "RArm"
+            or obj.Name == "LArm" then
+
+            table.insert(RemoveList, obj)
+
+        end
+    end
 
 
-	-- DISABLE OLD MODEL EXTRAS
-	for _,v in ipairs(OldModel:GetDescendants()) do
-		if v:IsA("Decal") or v:IsA("Texture") then
-			v.Transparency = 1
-		elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
-			v.Enabled = false
-		end
-	end
+    for _, obj in ipairs(RemoveList) do
+
+        if obj.Parent then
+            obj:Destroy()
+        end
+    end
 
 
-	-- WELD & SETUP LIVE TRANSPARENCY SYNC (Inverse: Old >= 0.5 -> New = 0, else New = 1)
+    --//====================================================
+    --// PARENT
+    --//====================================================
 
-	local transparencyPairs = {}
-
-	for _,newPart in ipairs(NewModel:GetDescendants()) do
-
-		if newPart:IsA("BasePart") then
-
-			local oldPart = OldModel:FindFirstChild(newPart.Name,true)
-
-			if oldPart and oldPart:IsA("BasePart") then
-
-				newPart.Anchored = false
-				newPart.CanCollide = false
-				newPart.Massless = true
-
-				newPart.CFrame = oldPart.CFrame
+    NewModel.Parent = workspace
 
 
-				local weld = Instance.new("WeldConstraint")
-				weld.Part0 = oldPart
-				weld.Part1 = newPart
-				weld.Parent = newPart
+    --//====================================================
+    --// IMPORTANT:
+    --// ANCHOR EVERYTHING
+    --//
+    --// C-Moon is a visual replacement.
+    --// We don't want physics pulling its pieces apart.
+    --//====================================================
 
-				table.insert(transparencyPairs, {Old = oldPart, New = newPart})
+    for _, obj in ipairs(NewModel:GetDescendants()) do
 
-			end
-		end
-	end
+        if obj:IsA("BasePart") then
 
-	RunService.RenderStepped:Connect(function()
-		for _, pair in ipairs(transparencyPairs) do
-			if pair.Old and pair.Old.Parent and pair.New and pair.New.Parent then
-				local oldAlpha = pair.Old.Transparency
-				if oldAlpha >= 0.5 then
-					pair.New.Transparency = 0
-				else
-					pair.New.Transparency = 1
-				end
-			end
-		end
-	end)
+            obj.Anchored = true
+            obj.CanCollide = false
+            obj.CanTouch = false
+            obj.CanQuery = false
+            obj.Massless = true
+
+        end
+    end
 
 
+    --//====================================================
+    --// MAKE OLD MODEL INVISIBLE
+    --//====================================================
 
-	--// ANIMATION SYNC
+    for _, obj in ipairs(OldModel:GetDescendants()) do
 
-	local function GetSpecificAnimator(model)
-		local controller = model:FindFirstChild("AnimationController")
-		if controller and controller:IsA("AnimationController") then
-			local animator = controller:FindFirstChild("Animator")
-			if animator and animator:IsA("Animator") then
-				return animator
-			else
-				local newAnimator = Instance.new("Animator")
-				newAnimator.Name = "Animator"
-				newAnimator.Parent = controller
-				return newAnimator
-			end
-		else
-			local newController = Instance.new("AnimationController")
-			newController.Name = "AnimationController"
-			newController.Parent = model
-			local newAnimator = Instance.new("Animator")
-			newAnimator.Name = "Animator"
-			newAnimator.Parent = newController
-			return newAnimator
-		end
-	end
+        if obj:IsA("BasePart")
+            or obj:IsA("Decal")
+            or obj:IsA("Texture") then
 
-	local OldAnimator = GetSpecificAnimator(OldModel)
-	local NewAnimator = GetSpecificAnimator(NewModel)
+            obj.Transparency = 1
 
-	if OldAnimator and NewAnimator then
-		print("Unfrozen live animation syncing enabled for: " .. OldModel.Name)
+        elseif obj:IsA("ParticleEmitter")
+            or obj:IsA("Trail") then
 
-		local activeMirrorConns = {}
+            obj.Enabled = false
 
-		local function MirrorTrack(oldTrack)
-			local oldAnimation = oldTrack.Animation
-			if oldAnimation then
-				local newAnimation = Instance.new("Animation")
-				newAnimation.AnimationId = oldAnimation.AnimationId
-
-				local success, newTrack = pcall(function()
-					return NewAnimator:LoadAnimation(newAnimation)
-				end)
-
-				if success and newTrack then
-					newTrack.Priority = oldTrack.Priority
-					newTrack.Looped = oldTrack.Looped
-
-					newTrack:Play(0, oldTrack.WeightCurrent, 0)
-
-					local conn
-					conn = RunService.RenderStepped:Connect(function()
-						if not oldTrack.IsPlaying or not newTrack.IsPlaying or not oldTrack.Parent or not newTrack.Parent then
-							conn:Disconnect()
-							pcall(function() newTrack:Stop() end)
-							return
-						end
-						newTrack.TimePosition = oldTrack.TimePosition
-						newTrack:AdjustWeight(oldTrack.WeightCurrent, 0)
-					end)
-					table.insert(activeMirrorConns, conn)
-				end
-			end
-		end
-
-		for _, activeTrack in ipairs(OldAnimator:GetPlayingAnimationTracks()) do
-			task.spawn(function()
-				MirrorTrack(activeTrack)
-			end)
-		end
-
-		OldAnimator.AnimationPlayed:Connect(function(oldTrack)
-			MirrorTrack(oldTrack)
-		end)
-	else
-		warn("Old or New animator could not be found or created")
-	end
-
-end)
+        end
+    end
 
 
+    --//====================================================
+    --// MAKE C-MOON VISIBLE (WITH HRP TRANSPARENT)
+    --//====================================================
 
---// AUDIO SWAPPER
+    for _, obj in ipairs(NewModel:GetDescendants()) do
 
-local function SwapSound(sound)
+        if obj:IsA("BasePart") then
 
-	if not sound:IsA("Sound") then
-		return
-	end
+            if obj.Name == "HumanoidRootPart" then
+                obj.Transparency = 1
+            else
+                obj.Transparency = 0
+            end
 
-	local id = sound.SoundId:match("%d+")
+        elseif obj:IsA("Decal")
+            or obj:IsA("Texture") then
 
-	if AudioSwaps[id] then
-		local data = AudioSwaps[id]
-		local playing = sound.IsPlaying
+            obj.Transparency = 0
 
-		sound.SoundId = data.Id
-
-		if playing then
-			sound:Stop()
-			sound.TimePosition = data.Start
-			sound:Play()
-		else
-			sound.TimePosition = data.Start
-		end
-	end
-
-end
+        end
+    end
 
 
+    --//========================================================
+    --// R15 BODY PARTS
+    --//========================================================
 
-for _,obj in ipairs(game:GetDescendants()) do
-	SwapSound(obj)
-end
+    local BodyParts = {
+        "HumanoidRootPart",
+
+        "UpperTorso",
+        "LowerTorso",
+
+        "Head",
+
+        "RightUpperArm",
+        "RightLowerArm",
+        "RightHand",
+
+        "LeftUpperArm",
+        "LeftLowerArm",
+        "LeftHand",
+
+        "RightUpperLeg",
+        "RightLowerLeg",
+        "RightFoot",
+
+        "LeftUpperLeg",
+        "LeftLowerLeg",
+        "LeftFoot"
+    }
 
 
-game.DescendantAdded:Connect(function(obj)
+    --//========================================================
+    --// FIND OLD BODY PART
+    --//========================================================
 
-	task.defer(function()
-		SwapSound(obj)
-	end)
+    local function FindOldPart(name)
+
+        local obj = OldModel:FindFirstChild(name, true)
+
+        if obj and obj:IsA("BasePart") then
+            return obj
+        end
+
+        return nil
+    end
+
+
+    --//========================================================
+    --// FIND C-MOON GROUP
+    --//========================================================
+
+    local function FindNewGroup(name)
+
+        local direct = NewModel:FindFirstChild(name)
+
+        if direct then
+            return direct
+        end
+
+
+        for _, obj in ipairs(NewModel:GetDescendants()) do
+
+            if obj.Name == name then
+                return obj
+            end
+
+        end
+
+
+        return nil
+    end
+
+
+    --//========================================================
+    --// GET GROUP PARTS
+    --//========================================================
+
+    local function GetGroupParts(group)
+
+        local parts = {}
+
+
+        if group:IsA("BasePart") then
+            table.insert(parts, group)
+        end
+
+
+        for _, obj in ipairs(group:GetDescendants()) do
+
+            if obj:IsA("BasePart") then
+                table.insert(parts, obj)
+            end
+
+        end
+
+
+        return parts
+    end
+
+
+    --//========================================================
+    --// FIND ROOT
+    --//========================================================
+
+    local OldRoot = FindOldPart("HumanoidRootPart")
+
+    if not OldRoot then
+
+        warn(
+            "C-Moon: Old model has no HumanoidRootPart."
+        )
+
+        NewModel:Destroy()
+
+        return
+    end
+
+
+    --//========================================================
+    --// SAVE C-MOON INITIAL BODY POSITIONS
+    --//========================================================
+
+    local Groups = {}
+
+
+    for _, BodyName in ipairs(BodyParts) do
+
+        local OldPart = FindOldPart(BodyName)
+        local NewGroup = FindNewGroup(BodyName)
+
+
+        if OldPart and NewGroup then
+
+            local Parts = GetGroupParts(NewGroup)
+
+
+            if #Parts > 0 then
+
+                -- First C-Moon part is the group's reference.
+                local Reference = Parts[1]
+
+                local Offsets = {}
+
+
+                -- Save every piece's ORIGINAL position
+                -- relative to the reference.
+                for _, Part in ipairs(Parts) do
+
+                    Offsets[Part] =
+                        Reference.CFrame:ToObjectSpace(
+                            Part.CFrame
+                        )
+
+                end
+
+
+                -- Save the reference's original relationship
+                -- to the C-Moon model.
+                local RootOffset =
+                    NewModel:GetPivot():ToObjectSpace(
+                        Reference.CFrame
+                    )
+
+
+                table.insert(Groups, {
+
+                    Name = BodyName,
+
+                    OldPart = OldPart,
+
+                    NewGroup = NewGroup,
+
+                    Reference = Reference,
+
+                    Parts = Parts,
+
+                    Offsets = Offsets,
+
+                    RootOffset = RootOffset
+
+                })
+
+            end
+        end
+    end
+
+
+    --//========================================================
+    --// INITIAL C-MOON POSITION
+    --//========================================================
+
+    NewModel:PivotTo(OldModel:GetPivot())
+
+
+    --//========================================================
+    --// BODY SYNC
+    --//========================================================
+    --
+    -- OLD R15:
+    --
+    -- HumanoidRootPart
+    --       ↓
+    --     Head
+    --     Torso
+    --     Arms
+    --     Legs
+    --
+    -- Each C-Moon group follows the corresponding OLD R15
+    -- body part while preserving its own geometry.
+    --
+    --========================================================
+
+    local Connection
+
+    Connection = RunService.RenderStepped:Connect(function()
+
+        if not OldModel
+            or not OldModel.Parent then
+
+            Connection:Disconnect()
+
+            if NewModel then
+                NewModel:Destroy()
+            end
+
+            return
+        end
+
+
+        if not NewModel
+            or not NewModel.Parent then
+
+            Connection:Disconnect()
+
+            return
+        end
+
+
+        --====================================================
+        -- SYNC EVERY BODY GROUP
+        --====================================================
+
+        for _, Group in ipairs(Groups) do
+
+            local OldPart = Group.OldPart
+            local Reference = Group.Reference
+
+
+            if OldPart
+                and OldPart.Parent
+                and Reference
+                and Reference.Parent then
+
+
+                --================================================
+                -- GET OLD LIMB'S WORLD CFRAME
+                --================================================
+
+                local TargetCFrame =
+                    OldPart.CFrame
+
+
+                --================================================
+                -- MOVE C-MOON REFERENCE
+                --================================================
+
+                Reference.CFrame =
+                    TargetCFrame
+
+
+                --================================================
+                -- RESTORE ALL C-MOON PIECES
+                --================================================
+
+                for _, Part in ipairs(Group.Parts) do
+
+                    if Part
+                        and Part.Parent then
+
+                        local Offset =
+                            Group.Offsets[Part]
+
+
+                        if Offset then
+
+                            Part.CFrame =
+                                TargetCFrame * Offset
+
+                        end
+                    end
+                end
+            end
+        end
+
+    end)
+
+
+    --//========================================================
+    --// AUDIO SWAPPER
+    --//========================================================
+
+    local function SwapSound(sound)
+
+        if not sound:IsA("Sound") then
+            return
+        end
+
+
+        local id = sound.SoundId:match("%d+")
+
+
+        if id and AudioSwaps[id] then
+
+            local data = AudioSwaps[id]
+
+            local wasPlaying =
+                sound.IsPlaying
+
+
+            sound.SoundId =
+                data.Id
+
+
+            if wasPlaying then
+
+                sound:Stop()
+
+                sound.TimePosition =
+                    data.Start or 0
+
+                sound:Play()
+
+            else
+
+                sound.TimePosition =
+                    data.Start or 0
+
+            end
+        end
+    end
+
+
+    -- Existing sounds
+    for _, obj in ipairs(game:GetDescendants()) do
+        SwapSound(obj)
+    end
+
+
+    -- New sounds
+    game.DescendantAdded:Connect(function(obj)
+
+        task.defer(function()
+            SwapSound(obj)
+        end)
+
+    end)
+
+
+    --//========================================================
+    --// GUI MOVESET
+    --//========================================================
+
+    local guiCore = Player
+        :WaitForChild("PlayerGui")
+        :WaitForChild("GUIs")
+        :WaitForChild("Core")
+
+
+    local TARGET_IMAGE =
+        "rbxassetid://71216859091308"
+
+
+    local function setupMove(buttonName, defaultText)
+
+        local button =
+            guiCore:WaitForChild(buttonName)
+
+        local imageLabel =
+            button:WaitForChild("ImageLabel")
+
+
+        imageLabel.Image =
+            TARGET_IMAGE
+
+        imageLabel.ImageTransparency = 0
+
+
+        button.Text =
+            defaultText
+
+
+        local function isValidText(txt)
+
+            if txt == defaultText then
+                return true
+            end
+
+
+            local num =
+                tonumber(txt)
+
+
+            if num
+                and num >= 0.1
+                and num <= 30 then
+
+                return true
+            end
+
+
+            return false
+        end
+
+
+        button:GetPropertyChangedSignal(
+            "Text"
+        ):Connect(function()
+
+            local currentText =
+                button.Text
+
+
+            if not isValidText(currentText) then
+
+                button.Text =
+                    defaultText
+
+            end
+
+        end)
+
+
+        imageLabel:GetPropertyChangedSignal(
+            "Image"
+        ):Connect(function()
+
+            if imageLabel.Image ~= TARGET_IMAGE then
+
+                imageLabel.Image =
+                    TARGET_IMAGE
+
+            end
+
+        end)
+
+
+        imageLabel:GetPropertyChangedSignal(
+            "ImageTransparency"
+        ):Connect(function()
+
+            if imageLabel.ImageTransparency ~= 0 then
+
+                imageLabel.ImageTransparency = 0
+
+            end
+
+        end)
+
+    end
+
+
+    --//========================================================
+    --// MOVESET
+    --//========================================================
+
+    setupMove(
+        "Super1",
+        "Rock Debris"
+    )
+
+    setupMove(
+        "Super2",
+        "Counter"
+    )
+
+    setupMove(
+        "Super3",
+        "Ill will finish this"
+    )
+
+    setupMove(
+        "Ultimate",
+        "Gravitational Shift"
+    )
+
+    setupMove(
+        "Rush",
+        "Ushaaa!"
+    )
+
+    setupMove(
+        "Heavy",
+        "I am the center of gravity..."
+    )
+
+
+    print(
+        "C-Moon loaded. Synced",
+        #Groups,
+        "R15 body groups."
+    )
 
 end)
