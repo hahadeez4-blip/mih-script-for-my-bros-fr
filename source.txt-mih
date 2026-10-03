@@ -60,25 +60,31 @@ local AudioSwaps = {
 
 --// ACCELERATION EFFECT SETTINGS
 
-local ACCEL_TRIGGER_ID   = "89772764055022"          
-local ACCEL_DELAY        = 2.25                      
-local ACCEL_DURATION     = 20                        
+local ACCEL_TRIGGER_ID   = "89772764055022"         
+local ACCEL_DELAY        = 2.25                    
+local ACCEL_DURATION     = 20                      
 local ACCEL_ONESHOT_ID   = "rbxassetid://123559127105316" 
-local ACCEL_WALKSPEED    = 120                        
-local ACCEL_TURN_SPEED   = 12                        
-local ACCEL_MAX_DT       = 1/30                      
-local ACCEL_RAMP_TIME    = 0.15                      
-
-local CIRCLE_RADIUS      = 10                        
-local CIRCLE_DIRECTION   = 1                         
-
-local GROUND_RAY_DISTANCE = 10                       
+local ACCEL_WALKSPEED    = 7                       -- Lowered to 7 (was 85)
+local ACCEL_TURN_SPEED   = 12                      
+local ACCEL_MAX_DT       = 1/30                    
+local ACCEL_RAMP_TIME    = 0.15                    
 
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
 local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
 
 local accelActive = false 
+local tpwalking = nil
+local speed = 1
+
+-- Cleanup tracking
+local modelConnection = nil
+local descendantConnection = nil
+local characterDiedConnection = nil
+local NewModelRef = nil
+local scriptAlive = true
 
 
 --// SHIFTLOCK HELPER
@@ -88,33 +94,12 @@ local function IsShiftlockActive()
 end
 
 
---// GROUND SNAP HELPER
-
-local function GetSnappedY(position, heightOffset, character, fallbackY)
-
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = {character}
-
-	local origin = Vector3.new(position.X, position.Y + 3, position.Z)
-	local result = workspace:Raycast(origin, Vector3.new(0, -GROUND_RAY_DISTANCE, 0), params)
-
-	if result then
-		return result.Position.Y + heightOffset
-	end
-
-	return fallbackY
-
-end
-
-
 
 --// FIND PLAYER MODEL
 
 local function FindOwnedModel()
 
 	local Living = workspace:WaitForChild("Living")
-	local Player = game.Players.LocalPlayer
 
 	for _,model in ipairs(Living:GetChildren()) do
 
@@ -122,8 +107,8 @@ local function FindOwnedModel()
 
 			if obj:IsA("ObjectValue") and obj.Name == "Owner" then
 
-				if obj.Value == Player 
-				or (obj.Value and obj.Value.Name == Player.Name) then
+				if obj.Value == LocalPlayer 
+				or (obj.Value and obj.Value.Name == LocalPlayer.Name) then
 
 					return model
 
@@ -135,10 +120,32 @@ local function FindOwnedModel()
 end
 
 
+--// CHECK IF SOUND BELONGS TO LOCAL PLAYER / OWNED STAND
+local function IsLocalSound(sound)
+	if not sound or not sound:IsA("Sound") then
+		return false
+	end
 
---// CREATE MODEL
+	local character = LocalPlayer.Character
+	if character and sound:IsDescendantOf(character) then
+		return true
+	end
+
+	local ownedModel = FindOwnedModel()
+	if ownedModel and sound:IsDescendantOf(ownedModel) then
+		return true
+	end
+
+	return false
+end
+
+
+
+--// CREATE MODEL (C-MOON STYLE GROUP SYNC + TRANSPARENT OLD MODEL + MATCHED SIZES EXCEPT HEAD)
 
 task.spawn(function()
+
+	if not scriptAlive then return end
 
 	local OldModel = FindOwnedModel()
 
@@ -149,6 +156,7 @@ task.spawn(function()
 
 	local assetPath = game:GetService("ReplicatedStorage").Assets.UltimateMiH
 	local NewModel = assetPath:Clone()
+	NewModelRef = NewModel
 
 
 	-- REMOVE PARTS (MIH specific)
@@ -184,159 +192,222 @@ task.spawn(function()
 	end
 
 
-	NewModel.Parent = workspace
-	NewModel:PivotTo(OldModel:GetPivot())
-
-
-	-- UNANCHOR ALL PARTS IN NEW MODEL
-	for _, v in ipairs(NewModel:GetDescendants()) do
-		if v:IsA("BasePart") then
-			v.Anchored = false
+	-- ANCHOR EVERYTHING IN NEW MODEL
+	for _, obj in ipairs(NewModel:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			obj.Anchored = true
+			obj.CanCollide = false
+			obj.CanTouch = false
+			obj.CanQuery = false
+			obj.Massless = true
 		end
 	end
 
 
-	-- DISABLE OLD MODEL EXTRAS
-	for _,v in ipairs(OldModel:GetDescendants()) do
-		if v:IsA("Decal") or v:IsA("Texture") then
-			v.Transparency = 1
-		elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
-			v.Enabled = false
+	-- MAKE OLD MODEL TRANSPARENT
+	for _, obj in ipairs(OldModel:GetDescendants()) do
+		if obj:IsA("BasePart")
+			or obj:IsA("Decal")
+			or obj:IsA("Texture") then
+
+			obj.Transparency = 1
+
+		elseif obj:IsA("ParticleEmitter")
+			or obj:IsA("Trail") then
+
+			obj.Enabled = false
+
 		end
 	end
 
 
-	-- WELD & SETUP LIVE TRANSPARENCY SYNC (Inverse: Old >= 0.5 -> New = 0, else New = 1)
+	-- MAKE NEW MODEL VISIBLE (NO TRANSPARENCY)
+	for _, obj in ipairs(NewModel:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			obj.Transparency = 0
+		elseif obj:IsA("Decal")
+			or obj:IsA("Texture") then
 
-	local transparencyPairs = {}
-
-	for _,newPart in ipairs(NewModel:GetDescendants()) do
-
-		if newPart:IsA("BasePart") then
-
-			local oldPart = OldModel:FindFirstChild(newPart.Name,true)
-
-			if oldPart and oldPart:IsA("BasePart") then
-
-				newPart.Anchored = false
-				newPart.CanCollide = false
-				newPart.Massless = true
-
-				newPart.CFrame = oldPart.CFrame
+			obj.Transparency = 0
+		end
+	end
 
 
-				local weld = Instance.new("WeldConstraint")
-				weld.Part0 = oldPart
-				weld.Part1 = newPart
-				weld.Parent = newPart
+	--// R15 BODY PARTS MAPPING FOR SIZING
+	local BodyParts = {
+		"HumanoidRootPart",
+		"UpperTorso",
+		"LowerTorso",
+		"Head",
+		"RightUpperArm",
+		"RightLowerArm",
+		"RightHand",
+		"LeftUpperArm",
+		"LeftLowerArm",
+		"LeftHand",
+		"RightUpperLeg",
+		"RightLowerLeg",
+		"RightFoot",
+		"LeftUpperLeg",
+		"LeftLowerLeg",
+		"LeftFoot"
+	}
 
-				table.insert(transparencyPairs, {Old = oldPart, New = newPart})
+	local function FindOldPart(name)
+		local obj = OldModel:FindFirstChild(name, true)
+		if obj and obj:IsA("BasePart") then
+			return obj
+		end
+		return nil
+	end
 
+	local function FindNewGroup(name)
+		local direct = NewModel:FindFirstChild(name)
+		if direct then
+			return direct
+		end
+		for _, obj in ipairs(NewModel:GetDescendants()) do
+			if obj.Name == name then
+				return obj
+			end
+		end
+		return nil
+	end
+
+	local function GetGroupParts(group)
+		local parts = {}
+		if group:IsA("BasePart") then
+			table.insert(parts, group)
+		end
+		for _, obj in ipairs(group:GetDescendants()) do
+			if obj:IsA("BasePart") then
+				table.insert(parts, obj)
+			end
+		end
+		return parts
+	end
+
+	-- SCALE NEW MODEL PARTS TO MATCH OLD MODEL PART SIZES (EXCEPT HEAD)
+	for _, BodyName in ipairs(BodyParts) do
+		if BodyName ~= "Head" then
+			local OldPart = FindOldPart(BodyName)
+			local NewGroup = FindNewGroup(BodyName)
+
+			if OldPart and NewGroup then
+				local newParts = GetGroupParts(NewGroup)
+				if #newParts > 0 then
+					local referencePart = newParts[1]
+					
+					local oldSize = OldPart.Size
+					local newSize = referencePart.Size
+					
+					local scaleX = oldSize.X / math.max(newSize.X, 0.001)
+					local scaleY = oldSize.Y / math.max(newSize.Y, 0.001)
+					local scaleZ = oldSize.Z / math.max(newSize.Z, 0.001)
+
+					for _, part in ipairs(newParts) do
+						part.Size = Vector3.new(part.Size.X * scaleX, part.Size.Y * scaleY, part.Size.Z * scaleZ)
+						for _, child in ipairs(part:GetChildren()) do
+							if child:IsA("SpecialMesh") then
+								child.Scale = Vector3.new(child.Scale.X * scaleX, child.Scale.Y * scaleY, child.Scale.Z * scaleZ)
+							end
+						end
+					end
+				end
 			end
 		end
 	end
 
-	RunService.RenderStepped:Connect(function()
-		for _, pair in ipairs(transparencyPairs) do
-			if pair.Old and pair.Old.Parent and pair.New and pair.New.Parent then
-				local oldAlpha = pair.Old.Transparency
-				if oldAlpha >= 0.5 then
-					pair.New.Transparency = 0
-				else
-					pair.New.Transparency = 1
+
+	NewModel.Parent = workspace
+
+
+	local OldRoot = FindOldPart("HumanoidRootPart")
+	if not OldRoot then
+		warn("MIH: Old model has no HumanoidRootPart.")
+		NewModel:Destroy()
+		return
+	end
+
+	local Groups = {}
+
+	for _, BodyName in ipairs(BodyParts) do
+		local OldPart = FindOldPart(BodyName)
+		local NewGroup = FindNewGroup(BodyName)
+
+		if OldPart and NewGroup then
+			local Parts = GetGroupParts(NewGroup)
+
+			if #Parts > 0 then
+				local Reference = Parts[1]
+				local Offsets = {}
+
+				for _, Part in ipairs(Parts) do
+					Offsets[Part] = Reference.CFrame:ToObjectSpace(Part.CFrame)
+				end
+
+				table.insert(Groups, {
+					Name = BodyName,
+					OldPart = OldPart,
+					NewGroup = NewGroup,
+					Reference = Reference,
+					Parts = Parts,
+					Offsets = Offsets
+				})
+			end
+		end
+	end
+
+	NewModel:PivotTo(OldModel:GetPivot())
+
+	modelConnection = RunService.RenderStepped:Connect(function()
+		if not scriptAlive then
+			if modelConnection then modelConnection:Disconnect() end
+			return
+		end
+
+		if not OldModel or not OldModel.Parent then
+			if modelConnection then modelConnection:Disconnect() end
+			if NewModel then
+				NewModel:Destroy()
+			end
+			return
+		end
+
+		if not NewModel or not NewModel.Parent then
+			if modelConnection then modelConnection:Disconnect() end
+			return
+		end
+
+		for _, Group in ipairs(Groups) do
+			local OldPart = Group.OldPart
+			local Reference = Group.Reference
+
+			if OldPart and OldPart.Parent and Reference and Reference.Parent then
+				local TargetCFrame = OldPart.CFrame
+				Reference.CFrame = TargetCFrame
+
+				for _, Part in ipairs(Group.Parts) do
+					if Part and Part.Parent then
+						local Offset = Group.Offsets[Part]
+						if Offset then
+							Part.CFrame = TargetCFrame * Offset
+						end
+					end
 				end
 			end
 		end
 	end)
 
-
-
-	--// ANIMATION SYNC
-
-	local function GetSpecificAnimator(model)
-		local controller = model:FindFirstChild("AnimationController")
-		if controller and controller:IsA("AnimationController") then
-			local animator = controller:FindFirstChild("Animator")
-			if animator and animator:IsA("Animator") then
-				return animator
-			else
-				local newAnimator = Instance.new("Animator")
-				newAnimator.Name = "Animator"
-				newAnimator.Parent = controller
-				return newAnimator
-			end
-		else
-			local newController = Instance.new("AnimationController")
-			newController.Name = "AnimationController"
-			newController.Parent = model
-			local newAnimator = Instance.new("Animator")
-			newAnimator.Name = "Animator"
-			newAnimator.Parent = newController
-			return newAnimator
-		end
-	end
-
-	local OldAnimator = GetSpecificAnimator(OldModel)
-	local NewAnimator = GetSpecificAnimator(NewModel)
-
-	if OldAnimator and NewAnimator then
-		print("Unfrozen live animation syncing enabled for: " .. OldModel.Name)
-
-		local activeMirrorConns = {}
-
-		local function MirrorTrack(oldTrack)
-			local oldAnimation = oldTrack.Animation
-			if oldAnimation then
-				local newAnimation = Instance.new("Animation")
-				newAnimation.AnimationId = oldAnimation.AnimationId
-
-				local success, newTrack = pcall(function()
-					return NewAnimator:LoadAnimation(newAnimation)
-				end)
-
-				if success and newTrack then
-					newTrack.Priority = oldTrack.Priority
-					newTrack.Looped = oldTrack.Looped
-
-					newTrack:Play(0, oldTrack.WeightCurrent, 0)
-
-					local conn
-					conn = RunService.RenderStepped:Connect(function()
-						if not oldTrack.IsPlaying or not newTrack.IsPlaying or not oldTrack.Parent or not newTrack.Parent then
-							conn:Disconnect()
-							pcall(function() newTrack:Stop() end)
-							return
-						end
-						newTrack.TimePosition = oldTrack.TimePosition
-						newTrack:AdjustWeight(oldTrack.WeightCurrent, 0)
-					end)
-					table.insert(activeMirrorConns, conn)
-				end
-			end
-		end
-
-		for _, activeTrack in ipairs(OldAnimator:GetPlayingAnimationTracks()) do
-			task.spawn(function()
-				MirrorTrack(activeTrack)
-			end)
-		end
-
-		OldAnimator.AnimationPlayed:Connect(function(oldTrack)
-			MirrorTrack(oldTrack)
-		end)
-	else
-		warn("Old or New animator could not be found or created")
-	end
-
 end)
 
 
 
---// ACCELERATION EFFECT
+--// ACCELERATION EFFECT (TURNING & TPWALK ONLY)
 
 local function DoAccelerationEffect()
 
-	if accelActive then
+	if not scriptAlive or accelActive then
 		return
 	end
 
@@ -346,8 +417,12 @@ local function DoAccelerationEffect()
 
 		task.wait(ACCEL_DELAY)
 
-		local Player = game.Players.LocalPlayer
-		local Character = Player.Character
+		if not scriptAlive then
+			accelActive = false
+			return
+		end
+
+		local Character = LocalPlayer.Character
 
 		if not Character then
 			accelActive = false
@@ -386,154 +461,76 @@ local function DoAccelerationEffect()
 			end
 		end
 
-		local heightOffset = 0
-		do
-			local groundY = GetSnappedY(HRP.Position, 0, Character, nil)
-			if groundY then
-				heightOffset = HRP.Position.Y - groundY
-			end
-		end
-
-
-		local startCFrame = HRP.CFrame
-
-		local flatLook = Vector3.new(startCFrame.LookVector.X, 0, startCFrame.LookVector.Z)
-		if flatLook.Magnitude < 0.001 then
-			flatLook = Vector3.new(0, 0, -1)
-		end
-		flatLook = flatLook.Unit
-
-		local flatRight = Vector3.new(startCFrame.RightVector.X, 0, startCFrame.RightVector.Z)
-		if flatRight.Magnitude < 0.001 then
-			flatRight = Vector3.new(1, 0, 0)
-		end
-		flatRight = flatRight.Unit * CIRCLE_DIRECTION
-
-		local circleCenter = HRP.Position + (flatRight * CIRCLE_RADIUS)
-		local circumference = 2 * math.pi * CIRCLE_RADIUS
-		local circleDuration = circumference / ACCEL_WALKSPEED
-
-		local circleStart = tick()
-		local circleFinished = false
-
-		local circleConn
-		circleConn = RunService.RenderStepped:Connect(function(dt)
-
-			dt = math.min(dt, ACCEL_MAX_DT)
-
-			local stillValid = Character.Parent and HRP.Parent and Humanoid.Health > 0
-			local elapsed = tick() - circleStart
-
-			if elapsed >= circleDuration or not stillValid then
-				circleConn:Disconnect()
-				circleFinished = true
-				return
-			end
-
-			local t = elapsed / circleDuration
-			local angle = t * 2 * math.pi
-
-			local horizontalOffset = (flatRight * -math.cos(angle) + flatLook * math.sin(angle)) * CIRCLE_RADIUS
-			local flatPos = circleCenter + horizontalOffset
-
-			local snappedY = GetSnappedY(flatPos, heightOffset, Character, HRP.Position.Y)
-			local newPos = Vector3.new(flatPos.X, snappedY, flatPos.Z)
-
-			local tangent = (flatRight * math.sin(angle) + flatLook * math.cos(angle))
-
-			if tangent.Magnitude > 0.001 then
-				HRP.CFrame = CFrame.lookAt(newPos, newPos + tangent.Unit)
-			else
-				HRP.CFrame = CFrame.new(newPos) * (HRP.CFrame - HRP.CFrame.Position)
-			end
-
-		end)
-
-		while not circleFinished do
-			task.wait()
-		end
-
-		if not (Character.Parent and HRP.Parent and Humanoid.Health > 0) then
-			restoreHumanoid()
-			accelActive = false
-			return
-		end
-
 
 		local startTime = tick()
+		speed = ACCEL_WALKSPEED
 
-		local conn
-		conn = RunService.RenderStepped:Connect(function(dt)
-
-			dt = math.min(dt, ACCEL_MAX_DT)
-
-			local stillValid = Character.Parent and HRP.Parent and Humanoid.Health > 0
-			local elapsed = tick() - startTime
-
-			if elapsed >= ACCEL_DURATION or not stillValid then
-
-				conn:Disconnect()
+		pcall(function() if tpwalking then tpwalking:Disconnect() end end)
+		tpwalking = RunService.Heartbeat:Connect(function(delta)
+			if not scriptAlive then
+				if tpwalking then tpwalking:Disconnect() end
 				restoreHumanoid()
 				accelActive = false
 				return
-
 			end
 
+			delta = math.min(delta, ACCEL_MAX_DT)
 
+			local character = LocalPlayer.Character
+			local humanoid = character and character:FindFirstChildWhichIsA("Humanoid")
+			local hrp = character and character:FindFirstChild("HumanoidRootPart")
+
+			if not (character and humanoid and hrp and humanoid.Parent) then 
+				if tpwalking then tpwalking:Disconnect() end
+				return 
+			end
+
+			local elapsed = tick() - startTime
 			local remaining = ACCEL_DURATION - elapsed
-			local rampMultiplier = 1
+			
+			if elapsed >= ACCEL_DURATION or humanoid.Health <= 0 then
+				if tpwalking then tpwalking:Disconnect() end
+				restoreHumanoid()
+				accelActive = false
+				return
+			end
 
+			local rampMultiplier = 1
 			if elapsed < ACCEL_RAMP_TIME then
 				rampMultiplier = elapsed / ACCEL_RAMP_TIME
 			elseif remaining < ACCEL_RAMP_TIME then
 				rampMultiplier = remaining / ACCEL_RAMP_TIME
 			end
-
 			rampMultiplier = math.clamp(rampMultiplier, 0, 1)
-			local speed = ACCEL_WALKSPEED * rampMultiplier
 
-
-			local moveDir = Humanoid.MoveDirection
-			local currentLook = HRP.CFrame.LookVector
-			local currentPos = HRP.Position
-			local flatPos = currentPos
-
-			if moveDir.Magnitude > 0 then
-				flatPos = currentPos + (moveDir.Unit * speed * dt)
-			end
-
-			local snappedY = GetSnappedY(flatPos, heightOffset, Character, currentPos.Y)
-			local newPos = Vector3.new(flatPos.X, snappedY, flatPos.Z)
-
-
+			-- Smooth Facing / Turning logic
+			local moveDir = humanoid.MoveDirection
+			local currentLook = hrp.CFrame.LookVector
+			local currentPos = hrp.Position
 			local targetLook
 
 			if IsShiftlockActive() then
-
 				local camera = workspace.CurrentCamera
 				local camLook = camera and Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z) or currentLook
-
 				targetLook = camLook.Magnitude > 0.001 and camLook.Unit or currentLook
-
 			elseif moveDir.Magnitude > 0 then
-
 				targetLook = Vector3.new(moveDir.X, 0, moveDir.Z).Unit
-
 			else
-
 				targetLook = currentLook
-
 			end
 
-			local alpha = math.clamp(ACCEL_TURN_SPEED * dt, 0, 1)
+			local alpha = math.clamp(ACCEL_TURN_SPEED * delta, 0, 1)
 			local easedLook = currentLook:Lerp(targetLook, alpha)
-
 			if easedLook.Magnitude < 0.001 then
 				easedLook = targetLook
 			end
 
-			HRP.CFrame = CFrame.lookAt(newPos, newPos + easedLook)
+			hrp.CFrame = CFrame.lookAt(currentPos, currentPos + easedLook)
 
+			-- TPWalk Movement (now at speed 7)
+			if moveDir.Magnitude > 0 then
+				character:TranslateBy(moveDir * speed * rampMultiplier * delta * 10)
+			end 
 		end)
 
 	end)
@@ -546,41 +543,34 @@ end
 
 local function SwapSound(sound)
 
-	if not sound:IsA("Sound") then
+	if not scriptAlive or not sound:IsA("Sound") then
 		return
 	end
 
-
 	local id = sound.SoundId:match("%d+")
-
 
 	if AudioSwaps[id] then
 
 		local data = AudioSwaps[id]
-
 		local playing = sound.IsPlaying
-
 
 		sound.SoundId = data.Id
 
-
 		if playing then
-
 			sound:Stop()
 			sound.TimePosition = data.Start
 			sound:Play()
-
 		else
-
 			sound.TimePosition = data.Start
-
 		end
 
-
-		if id == "5968741444" or data.Id:match("%d+") == ACCEL_TRIGGER_ID then
+		-- Only trigger acceleration if this is a LOCAL sound (your character or your stand)
+		if (id == "5968741444" or data.Id:match("%d+") == ACCEL_TRIGGER_ID) and IsLocalSound(sound) then
 
 			sound.Played:Connect(function()
-				DoAccelerationEffect()
+				if scriptAlive then
+					DoAccelerationEffect()
+				end
 			end)
 
 			if playing then
@@ -600,10 +590,146 @@ for _,obj in ipairs(game:GetDescendants()) do
 end
 
 
-game.DescendantAdded:Connect(function(obj)
-
+descendantConnection = game.DescendantAdded:Connect(function(obj)
+	if not scriptAlive then return end
 	task.defer(function()
 		SwapSound(obj)
 	end)
+end)
 
+
+--// GUI MOVESET
+
+task.spawn(function()
+	if not scriptAlive then return end
+
+	local successGui, guiCore = pcall(function()
+		return LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("GUIs"):WaitForChild("Core")
+	end)
+
+	if not successGui or not guiCore then
+		return
+	end
+
+	local TARGET_IMAGE = "rbxassetid://5601244863"
+
+	local function setupMove(buttonName, defaultText)
+		local success, button = pcall(function()
+			return guiCore:WaitForChild(buttonName, 5)
+		end)
+
+		if not success or not button then
+			return
+		end
+
+		local imageLabel = button:WaitForChild("ImageLabel")
+
+		imageLabel.Image = TARGET_IMAGE
+		imageLabel.ImageTransparency = 0
+
+		button.Text = defaultText
+
+		local function isValidText(txt)
+			if txt == defaultText then
+				return true
+			end
+
+			local num = tonumber(txt)
+			if num and num >= 0.1 and num <= 30 then
+				return true
+			end
+
+			return false
+		end
+
+		button:GetPropertyChangedSignal("Text"):Connect(function()
+			local currentText = button.Text
+			if not isValidText(currentText) then
+				button.Text = defaultText
+			end
+		end)
+
+		imageLabel:GetPropertyChangedSignal("Image"):Connect(function()
+			if imageLabel.Image ~= TARGET_IMAGE then
+				imageLabel.Image = TARGET_IMAGE
+			end
+		end)
+
+		imageLabel:GetPropertyChangedSignal("ImageTransparency"):Connect(function()
+			if imageLabel.ImageTransparency ~= 0 then
+				imageLabel.ImageTransparency = 0
+			end
+		end)
+	end
+
+	setupMove("Super1", "Knifes")
+	setupMove("Super2", "You Thought!")
+	setupMove("Super3", "Jotaro Kujo Your Only Weakness Is Your Daughter...")
+	setupMove("Ultimate", "Universe Reset")
+	setupMove("Rush", "Too late")
+	setupMove("Heavy", "Goodbye!")
+end)
+
+
+--// CLEANUP ON DEATH
+local function CleanupScript()
+	if not scriptAlive then return end
+	scriptAlive = false
+
+	-- Stop acceleration
+	accelActive = false
+	if tpwalking then
+		pcall(function() tpwalking:Disconnect() end)
+		tpwalking = nil
+	end
+
+	-- Disconnect model sync
+	if modelConnection then
+		pcall(function() modelConnection:Disconnect() end)
+		modelConnection = nil
+	end
+
+	-- Disconnect sound listener
+	if descendantConnection then
+		pcall(function() descendantConnection:Disconnect() end)
+		descendantConnection = nil
+	end
+
+	-- Destroy custom model
+	if NewModelRef and NewModelRef.Parent then
+		pcall(function() NewModelRef:Destroy() end)
+		NewModelRef = nil
+	end
+
+	-- Disconnect death connection
+	if characterDiedConnection then
+		pcall(function() characterDiedConnection:Disconnect() end)
+		characterDiedConnection = nil
+	end
+
+	print("MIH Script cleaned up on death.")
+end
+
+-- Hook into character death
+local function SetupDeathHandler(character)
+	if not character then return end
+
+	local humanoid = character:WaitForChild("Humanoid", 5)
+	if humanoid then
+		characterDiedConnection = humanoid.Died:Connect(function()
+			CleanupScript()
+		end)
+	end
+end
+
+if LocalPlayer.Character then
+	SetupDeathHandler(LocalPlayer.Character)
+end
+
+LocalPlayer.CharacterAdded:Connect(function(character)
+	-- If the script is still considered alive when a new character spawns, re-setup
+	-- (in most cases after death we already cleaned up, so this mainly handles respawn if you re-execute)
+	if scriptAlive then
+		SetupDeathHandler(character)
+	end
 end)
